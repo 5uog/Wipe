@@ -21,7 +21,7 @@ All rights not expressly granted are reserved by the author.
 
 "use client"
 
-import { formatTimeRemaining } from "@/lib/room/room-utils"
+import { formatTimeRemaining } from "@/lib/room/roomUtils"
 
 export function RoomHeader(props: {
     roomId: string

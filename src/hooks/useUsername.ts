@@ -17,7 +17,7 @@ No license or other rights are granted by implication, estoppel, or otherwise.
 All rights not expressly granted are reserved by the author.
  ======================================================= */
 
-// src/hooks/use-username.ts
+// FILE: src/hooks/useUsername.ts
 
 "use client";
 
@@ -26,7 +26,7 @@ import {
     ANON_IDENTITY_EVENT,
     loadOrCreateAnonymousIdentityProfileV2,
     type AnonymousIdentityProfileV2,
-} from "../utils/anonymous-identity";
+} from "../utils/anonymousIdentity";
 
 const PROFILE_KEY_PREFIX = "chat_identity_v2";
 const FALLBACK_USERNAME = "anonymous";

@@ -24,7 +24,7 @@ All rights not expressly granted are reserved by the author.
 import type { GameStatePayload } from "@/lib/realtime"
 import type { Disc, Player } from "@/lib/othello"
 import styles from "./room.module.css"
-import { discClass, playerLabel } from "@/lib/room/room-utils"
+import { discClass, playerLabel } from "@/lib/room/roomUtils"
 
 export function BoardPane(props: {
     statusText: string

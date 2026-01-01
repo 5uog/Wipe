@@ -17,7 +17,7 @@ No license or other rights are granted by implication, estoppel, or otherwise.
 All rights not expressly granted are reserved by the author.
  ======================================================= */
 
-// src/utils/anonymous-identity.ts
+// src/utils/anonymousIdentity.ts
 
 import { nanoid } from "nanoid";
 

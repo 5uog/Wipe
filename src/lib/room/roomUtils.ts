@@ -17,11 +17,37 @@ No license or other rights are granted by implication, estoppel, or otherwise.
 All rights not expressly granted are reserved by the author.
  ======================================================= */
 
-// src/lib/realtime-client.ts
+// FILE: src/lib/room/roomUtils.ts
 
-"use client"
+import type { Disc, Player } from "@/lib/othello"
 
-import { createRealtime } from "@upstash/realtime/client"
-import type { RealtimeEvents } from "./realtime"
+export function formatTimeRemaining(seconds: number) {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, "0")}`
+}
 
-export const { useRealtime } = createRealtime<RealtimeEvents>()
+export function discClass(v: Disc) {
+    if (v === 1) return "bg-black border border-zinc-700"
+    if (v === 2) return "bg-zinc-200 border border-zinc-700"
+    return ""
+}
+
+export function playerLabel(p: Player | null) {
+    if (p === 1) return "BLACK"
+    if (p === 2) return "WHITE"
+    return "--"
+}
+
+export function boardsEqual(a: Disc[], b: Disc[]) {
+    if (a.length !== b.length) return false
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+    return true
+}
+
+export function winnerOverlayText(winner: 0 | 1 | 2 | null, me: Player | null) {
+    if (winner === 0) return "DRAW"
+    if (winner === 1) return me ? (me === 1 ? "YOU WIN" : "YOU LOSE") : "BLACK WIN"
+    if (winner === 2) return me ? (me === 2 ? "YOU WIN" : "YOU LOSE") : "WHITE WIN"
+    return "FINISHED"
+}
