@@ -63,6 +63,10 @@ export default function CreatePage() {
 
     const [handicap, setHandicap] = useState<Disc[]>(() => Array(64).fill(0))
 
+    const [copyRoomIdStatus, setCopyRoomIdStatus] = useState("COPY")
+    const [copyInviteStatus, setCopyInviteStatus] = useState("COPY")
+    const [copySpectatorStatus, setCopySpectatorStatus] = useState("COPY")
+
     const handicapPayload = useMemo(() => {
         const black: number[] = []
         const white: number[] = []
@@ -129,6 +133,11 @@ export default function CreatePage() {
         }
     }
 
+    const flashStatus = (setter: (v: string) => void, ok: boolean) => {
+        setter(ok ? "COPIED!" : "COPY FAILED")
+        window.setTimeout(() => setter("COPY"), 1600)
+    }
+
     return (
         <main className="min-h-screen p-4 flex items-center justify-center">
             <div className="w-full max-w-2xl space-y-6">
@@ -141,7 +150,19 @@ export default function CreatePage() {
                     <div className="border border-zinc-800 bg-zinc-900/50 p-6 space-y-6">
                         <div className="space-y-1">
                             <div className="text-xs text-zinc-500 uppercase tracking-widest">Room</div>
-                            <div className="text-sm font-bold text-zinc-200 break-all">{result.roomId}</div>
+
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-bold text-zinc-200 break-all">{result.roomId}</div>
+                                <button
+                                    onClick={async () => {
+                                        const ok = await copyToClipboard(result.roomId)
+                                        flashStatus(setCopyRoomIdStatus, ok)
+                                    }}
+                                    className="text-xs bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded text-zinc-200 font-bold shrink-0"
+                                >
+                                    {copyRoomIdStatus}
+                                </button>
+                            </div>
                         </div>
 
                         <div className="space-y-4">
@@ -151,10 +172,13 @@ export default function CreatePage() {
                                     <div className="font-bold text-blue-400 tracking-widest text-lg">{result.inviteCode}</div>
                                 </div>
                                 <button
-                                    onClick={() => void copyToClipboard(result.inviteCode)}
+                                    onClick={async () => {
+                                        const ok = await copyToClipboard(result.inviteCode)
+                                        flashStatus(setCopyInviteStatus, ok)
+                                    }}
                                     className="text-xs bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded text-zinc-200 font-bold shrink-0"
                                 >
-                                    COPY
+                                    {copyInviteStatus}
                                 </button>
                             </div>
 
@@ -169,10 +193,13 @@ export default function CreatePage() {
                                         </div>
                                     </div>
                                     <button
-                                        onClick={() => void copyToClipboard(result.spectatorCode!)}
+                                        onClick={async () => {
+                                            const ok = await copyToClipboard(result.spectatorCode!)
+                                            flashStatus(setCopySpectatorStatus, ok)
+                                        }}
                                         className="text-xs bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded text-zinc-200 font-bold shrink-0"
                                     >
-                                        COPY
+                                        {copySpectatorStatus}
                                     </button>
                                 </div>
                             )}
@@ -180,7 +207,12 @@ export default function CreatePage() {
 
                         <div className="flex items-center justify-between gap-3">
                             <button
-                                onClick={() => reset()}
+                                onClick={() => {
+                                    reset()
+                                    setCopyRoomIdStatus("COPY")
+                                    setCopyInviteStatus("COPY")
+                                    setCopySpectatorStatus("COPY")
+                                }}
                                 className="text-xs bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded text-zinc-200 font-bold"
                             >
                                 CREATE ANOTHER
@@ -372,6 +404,9 @@ export default function CreatePage() {
                                 setTtlEnabled(true)
                                 setTtlMinutes(10)
                                 setHandicap(Array(64).fill(0))
+                                setCopyRoomIdStatus("COPY")
+                                setCopyInviteStatus("COPY")
+                                setCopySpectatorStatus("COPY")
                             }}
                             className="text-xs text-zinc-500 hover:text-zinc-300 underline"
                         >
