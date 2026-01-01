@@ -1,0 +1,77 @@
+/* ======================================================= *
+Copyright © 2025 suog, Konishi Kento.
+All rights reserved.
+
+This work is protected by applicable copyright laws. 
+
+No permission is granted to copy, reproduce, modify, distribute, publish, transmit, sublicense, 
+or otherwise exploit this work, in whole or in part, in any form or by any means, 
+without the prior explicit written consent of the copyright holder.
+Use of this work for training, fine-tuning, evaluating, benchmarking, or otherwise developing or 
+improving machine learning systems, including generative or foundation models, is expressly prohibited.
+This includes any incorporation of this work or any derivative thereof into datasets or pipelines 
+used for automated learning or model development. Any false attribution, misrepresentation of origin,
+or removal or alteration of this notice is prohibited and constitutes an infringement of the author's moral rights. 
+
+No license or other rights are granted by implication, estoppel, or otherwise.
+All rights not expressly granted are reserved by the author.
+ ======================================================= */
+
+/* FILE: src/components/ResizableColumns.module.css */
+
+.container {
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+    --sr-left: 520px;
+    --sr-sep: 10px;
+}
+
+.grid {
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: var(--sr-left) var(--sr-sep) 1fr;
+}
+
+.pane {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.separator {
+    position: relative;
+    height: 100%;
+    background: rgba(39, 39, 42, 0.7);
+    cursor: col-resize;
+    outline: none;
+}
+
+.separator:hover {
+    background: rgba(63, 63, 70, 0.8);
+}
+
+.separator:focus-visible {
+    box-shadow: 0 0 0 2px rgba(113, 113, 122, 0.6);
+}
+
+.separatorLine {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.separatorGlow {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    background: rgba(255, 255, 255, 0.05);
+}
