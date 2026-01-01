@@ -42,6 +42,30 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 type Toast = { text: string; untilMs: number }
 
+type ChatMessage = {
+    id: string
+    sender: string
+    text: string
+    timestamp: number
+    roomId: string
+}
+type MessagesResponse = { messages: ChatMessage[] }
+
+type RoomInfoPayload = {
+    mode: "invite" | "match" | null
+    inviteCode: string | null
+    spectatorCode: string | null
+    allowSpectators: boolean
+    spectatorCanViewChat: boolean
+    spectatorCanSendChat: boolean
+    ttlEnabled: boolean
+    ttlSeconds: number | null
+    role: "player" | "spectator"
+    spectatorsCount: number
+    spectatorCapacity: number
+    spectatorSlotsRemaining: number
+}
+
 export default function RoomClient({ roomId }: { roomId: string }) {
     const router = useRouter()
     const { username } = useUsername()
@@ -54,6 +78,7 @@ export default function RoomClient({ roomId }: { roomId: string }) {
 
     const [copyStatus, setCopyStatus] = useState("COPY LINK")
     const [copyCodeStatus, setCopyCodeStatus] = useState("COPY CODE")
+    const [copySpecCodeStatus, setCopySpecCodeStatus] = useState("COPY SPEC CODE")
 
     const [nowMs, setNowMs] = useState(() => Date.now())
     useEffect(() => {
@@ -103,16 +128,44 @@ export default function RoomClient({ roomId }: { roomId: string }) {
         setToast({ text, untilMs: now + ms })
     }, [])
 
+    const emitToastDeferred = useCallback(
+        (text: string, ms: number = 1400) => {
+            window.setTimeout(() => emitToast(text, ms), 0)
+        },
+        [emitToast]
+    )
+
     const lastLocalPassAtRef = useRef<number>(0)
 
-    const {
-        data: ttlData,
-        dataUpdatedAt: ttlUpdatedAt,
-        refetch: refetchTtl,
-    } = useQuery({
+    const { data: roomInfoRaw, refetch: refetchRoomInfo } = useQuery({
+        queryKey: ["roomInfo", roomId],
+        queryFn: async () => {
+            const res = await client.room.info.get({ query: { roomId } })
+            if (res.status !== 200) return null
+            return res.data as RoomInfoPayload
+        },
+    })
+
+    const roomInfo = (roomInfoRaw ?? null) as RoomInfoPayload | null
+
+    const mode = (roomInfo?.mode ?? null) as "invite" | "match" | null
+    const inviteCode = (roomInfo?.inviteCode ?? null) as string | null
+    const spectatorCode = (roomInfo?.spectatorCode ?? null) as string | null
+    const role = (roomInfo?.role ?? "player") as "player" | "spectator"
+
+    const allowSpectators = !!roomInfo?.allowSpectators
+    const spectatorsCount = roomInfo?.spectatorsCount ?? 0
+    const spectatorCapacity = roomInfo?.spectatorCapacity ?? 0
+    const spectatorSlotsRemaining = roomInfo?.spectatorSlotsRemaining ?? 0
+
+    const canViewChat = role === "player" ? true : !!roomInfo?.spectatorCanViewChat
+    const canSendChat = role === "player" ? true : !!roomInfo?.spectatorCanSendChat
+
+    const { data: ttlData, dataUpdatedAt: ttlUpdatedAt, refetch: refetchTtl } = useQuery({
         queryKey: ["ttl", roomId],
         queryFn: async () => {
             const res = await client.room.ttl.get({ query: { roomId } })
+            if (res.status !== 200) return { ttl: null as number | null }
             return res.data as { ttl: number | null }
         },
     })
@@ -134,22 +187,13 @@ export default function RoomClient({ roomId }: { roomId: string }) {
         if (timeRemaining <= 0) router.push("/?destroyed=true")
     }, [router, timeRemaining])
 
-    const { data: roomInfo } = useQuery({
-        queryKey: ["roomInfo", roomId],
-        queryFn: async () => {
-            const res = await client.room.info.get({ query: { roomId } })
-            return res.data
-        },
-    })
-
-    const mode = (roomInfo?.mode ?? null) as "invite" | "match" | null
-    const inviteCode = (roomInfo?.inviteCode ?? null) as string | null
-
-    const { data: messages, refetch: refetchMessages } = useQuery({
-        queryKey: ["messages", roomId],
+    const { data: messages, refetch: refetchMessages } = useQuery<MessagesResponse>({
+        queryKey: ["messages", roomId, canViewChat],
+        enabled: canViewChat,
         queryFn: async () => {
             const res = await client.messages.get({ query: { roomId } })
-            return res.data
+            if (res.status !== 200) return { messages: [] as ChatMessage[] }
+            return res.data as MessagesResponse
         },
     })
 
@@ -157,6 +201,7 @@ export default function RoomClient({ roomId }: { roomId: string }) {
         queryKey: ["game", roomId],
         queryFn: async () => {
             const res = await client.game.get({ query: { roomId } })
+            if (res.status !== 200) return null
             return res.data
         },
     })
@@ -168,8 +213,7 @@ export default function RoomClient({ roomId }: { roomId: string }) {
     const stateTurn = (state?.turn ?? null) as Player | null
     const stateWinner = (state?.winner ?? null) as 0 | 1 | 2 | null
     const stateUpdatedAt = (state?.updatedAt ?? null) as number | null
-    const stateLastMove =
-        (state?.lastMove ?? null) as { x: number; y: number; player: Player } | null
+    const stateLastMove = (state?.lastMove ?? null) as { x: number; y: number; player: Player } | null
 
     const canonicalBoard = (state?.board ?? Array(64).fill(0)) as Disc[]
 
@@ -194,8 +238,10 @@ export default function RoomClient({ roomId }: { roomId: string }) {
     const stickyOverlayText = useMemo(() => {
         if (stateStatus === "finished") return winnerOverlayText(stateWinner, me)
         if (stateStatus === "playing" && canPass) return "PASS"
+        if (stateStatus === "waiting" && mode === "match") return "SEARCHING..."
+        if (stateStatus === "waiting" && mode === "invite") return "WAITING..."
         return null
-    }, [canPass, me, stateStatus, stateWinner])
+    }, [canPass, me, mode, stateStatus, stateWinner])
 
     const toastText = useMemo(() => {
         if (!toast) return null
@@ -208,26 +254,33 @@ export default function RoomClient({ roomId }: { roomId: string }) {
 
     const { mutate: sendMessage, isPending: sendingMessage } = useMutation({
         mutationFn: async ({ text }: { text: string }) => {
-            await client.messages.post({ sender: username, text }, { query: { roomId } })
+            const res = await client.messages.post({ sender: username, text }, { query: { roomId } })
+            if (res.status !== 200) {
+                emitToast("CHAT BLOCKED")
+                return
+            }
             setInput("")
         },
     })
 
     const { mutate: destroyRoom, isPending: destroying } = useMutation({
         mutationFn: async () => {
-            await client.room.delete(null, { query: { roomId } })
+            const res = await client.room.delete(null, { query: { roomId } })
+            if (res.status !== 200) emitToast("DESTROY FAILED")
         },
     })
 
     const { mutate: moveDisc, isPending: moving } = useMutation({
         mutationFn: async ({ x, y }: { x: number; y: number }) => {
-            await client.game.move.post({ x, y }, { query: { roomId } })
+            const res = await client.game.move.post({ x, y }, { query: { roomId } })
+            if (res.status !== 200) emitToast("MOVE FAILED")
         },
     })
 
     const { mutate: passTurn, isPending: passing } = useMutation({
         mutationFn: async () => {
-            await client.game.pass.post(null, { query: { roomId } })
+            const res = await client.game.pass.post(null, { query: { roomId } })
+            if (res.status !== 200) emitToast("PASS FAILED")
         },
     })
 
@@ -235,10 +288,13 @@ export default function RoomClient({ roomId }: { roomId: string }) {
         channels: [roomId],
         events: ["chat.message", "chat.destroy", "game.state"],
         onData: ({ event }) => {
-            if (event === "chat.message") refetchMessages()
+            if (event === "chat.message") {
+                if (canViewChat) refetchMessages()
+            }
             if (event === "game.state") {
                 refetchGame()
                 refetchTtl()
+                refetchRoomInfo()
             }
             if (event === "chat.destroy") router.push("/?destroyed=true")
         },
@@ -264,6 +320,46 @@ export default function RoomClient({ roomId }: { roomId: string }) {
         playPlace,
         playFlip,
     })
+
+    const prevStatusRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!stateUpdatedAt) return
+        const prev = prevStatusRef.current
+        const next = stateStatus
+        if (prev && prev === "waiting" && next === "playing") {
+            emitToastDeferred("OPPONENT FOUND")
+        }
+        prevStatusRef.current = next
+    }, [emitToastDeferred, stateStatus, stateUpdatedAt])
+
+    const prevMeRef = useRef<Player | null>(null)
+    useEffect(() => {
+        if (!stateUpdatedAt) return
+        if (role === "spectator") {
+            if (prevMeRef.current !== null) prevMeRef.current = null
+            return
+        }
+        const prev = prevMeRef.current
+        const next = me
+        if (next && prev !== next) {
+            emitToastDeferred(next === 1 ? "YOU ARE BLACK (FIRST)" : "YOU ARE WHITE (SECOND)")
+        }
+        prevMeRef.current = next
+    }, [emitToastDeferred, me, role, stateUpdatedAt])
+
+    const prevRoleRef = useRef<"player" | "spectator" | null>(null)
+    useEffect(() => {
+        if (!roomInfo) return
+        const prev = prevRoleRef.current
+        const next = role
+        if (prev && prev !== next) {
+            emitToastDeferred(next === "spectator" ? "SPECTATOR MODE" : "PLAYER MODE")
+        }
+        if (!prev) {
+            emitToastDeferred(next === "spectator" ? "SPECTATOR MODE" : "PLAYER MODE", 900)
+        }
+        prevRoleRef.current = next
+    }, [emitToastDeferred, role, roomInfo])
 
     async function copyToClipboard(text: string): Promise<boolean> {
         try {
@@ -303,9 +399,16 @@ export default function RoomClient({ roomId }: { roomId: string }) {
         window.setTimeout(() => setCopyCodeStatus("COPY CODE"), 2000)
     }
 
+    const copySpectatorCode = async () => {
+        if (!spectatorCode) return
+        const ok = await copyToClipboard(spectatorCode)
+        setCopySpecCodeStatus(ok ? "COPIED!" : "COPY FAILED")
+        window.setTimeout(() => setCopySpecCodeStatus("COPY SPEC CODE"), 2000)
+    }
+
     const statusText = useMemo(() => {
         if (!stateStatus) return "LOADING"
-        if (stateStatus === "waiting") return "WAITING FOR OPPONENT"
+        if (stateStatus === "waiting") return mode === "match" ? "MATCHMAKING" : "WAITING FOR OPPONENT"
         if (stateStatus === "playing") return `TURN: ${playerLabel(stateTurn)}`
         if (stateStatus === "finished") {
             const w = stateWinner
@@ -315,21 +418,27 @@ export default function RoomClient({ roomId }: { roomId: string }) {
             return "RESULT: FINISHED"
         }
         return "UNKNOWN"
-    }, [stateStatus, stateTurn, stateWinner])
+    }, [mode, stateStatus, stateTurn, stateWinner])
 
     const onSend = () => {
         if (!input.trim()) return
+        if (!canSendChat) {
+            emitToast("CHAT DISABLED")
+            return
+        }
         void unlock()
         sendMessage({ text: input })
         inputRef.current?.focus()
     }
 
     const onMove = (x: number, y: number) => {
+        if (role === "spectator") return
         void unlock()
         moveDisc({ x, y })
     }
 
     const onPass = () => {
+        if (role === "spectator") return
         void unlock()
         lastLocalPassAtRef.current = Date.now()
         passTurn()
@@ -337,6 +446,10 @@ export default function RoomClient({ roomId }: { roomId: string }) {
     }
 
     const onDestroy = () => {
+        if (role !== "player") {
+            emitToast("FORBIDDEN")
+            return
+        }
         void unlock()
         destroyRoom()
     }
@@ -347,13 +460,21 @@ export default function RoomClient({ roomId }: { roomId: string }) {
                 roomId={roomId}
                 mode={mode}
                 inviteCode={inviteCode}
+                spectatorCode={spectatorCode}
+                role={role}
                 copyStatus={copyStatus}
                 copyCodeStatus={copyCodeStatus}
+                copySpecCodeStatus={copySpecCodeStatus}
                 onCopyLink={copyLink}
                 onCopyInviteCode={copyInviteCode}
+                onCopySpectatorCode={copySpectatorCode}
                 timeRemaining={timeRemaining}
                 destroying={destroying}
                 onDestroy={onDestroy}
+                allowSpectators={allowSpectators}
+                spectatorsCount={spectatorsCount}
+                spectatorCapacity={spectatorCapacity}
+                spectatorSlotsRemaining={spectatorSlotsRemaining}
             />
 
             <div className="flex-1 min-h-0 overflow-hidden">
@@ -361,6 +482,7 @@ export default function RoomClient({ roomId }: { roomId: string }) {
                     <ResizableColumns
                         left={
                             <BoardPane
+                                role={role}
                                 statusText={statusText}
                                 me={me}
                                 state={state}
@@ -389,6 +511,8 @@ export default function RoomClient({ roomId }: { roomId: string }) {
                                 inputRef={inputRef}
                                 onSend={onSend}
                                 sendingMessage={sendingMessage}
+                                canView={canViewChat}
+                                canSend={canSendChat}
                             />
                         }
                         minLeftPx={460}
@@ -402,6 +526,7 @@ export default function RoomClient({ roomId }: { roomId: string }) {
 
                 <div className={styles.mobileOnly}>
                     <BoardPane
+                        role={role}
                         statusText={statusText}
                         me={me}
                         state={state}
@@ -430,6 +555,8 @@ export default function RoomClient({ roomId }: { roomId: string }) {
                             inputRef={inputRef}
                             onSend={onSend}
                             sendingMessage={sendingMessage}
+                            canView={canViewChat}
+                            canSend={canSendChat}
                         />
                     </ChatDrawer>
                 </div>

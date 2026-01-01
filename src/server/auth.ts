@@ -23,6 +23,24 @@ import Elysia from "elysia"
 import { redis } from "@/lib/redis"
 import { metaKey } from "./keys"
 
+type RoomMode = "invite" | "match"
+type HostColor = "random" | "black" | "white"
+
+export type RoomMeta = {
+    players?: string[]
+    spectators?: string[]
+    createdAt?: number
+    mode?: RoomMode
+    inviteCode?: string | null
+    spectatorCode?: string | null
+    allowSpectators?: boolean
+    spectatorCanViewChat?: boolean
+    spectatorCanSendChat?: boolean
+    hostColor?: HostColor
+    ttlSeconds?: number | null
+    handicap?: { black: number[]; white: number[] }
+}
+
 class AuthError extends Error {
     constructor(message: string) {
         super(message)
@@ -53,17 +71,22 @@ export const authMiddleware = new Elysia({ name: "auth" })
             throw new AuthError("Missing roomId or token.")
         }
 
-        const connected = await redis.hget<string[]>(metaKey(roomId), "connected")
-        if (!connected || !Array.isArray(connected)) {
+        const meta = await redis.hgetall<RoomMeta>(metaKey(roomId))
+        if (!meta) {
             throw new AuthError("Room not found or meta missing.")
         }
 
-        if (!connected.includes(token)) {
+        const players = Array.isArray(meta.players) ? meta.players : []
+        const spectators = Array.isArray(meta.spectators) ? meta.spectators : []
+
+        const isPlayer = players.includes(token)
+        const isSpectator = spectators.includes(token)
+
+        if (!isPlayer && !isSpectator) {
             throw new AuthError("Invalid token")
         }
 
-        const index = connected.indexOf(token)
-        const player = index === 0 ? (1 as const) : (2 as const)
+        const role = isPlayer ? ("player" as const) : ("spectator" as const)
 
-        return { auth: { roomId, token, connected, player } }
+        return { auth: { roomId, token, role, players, spectators, meta } }
     })

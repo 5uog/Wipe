@@ -27,29 +27,44 @@ export function RoomHeader(props: {
     roomId: string
     mode: "invite" | "match" | null
     inviteCode: string | null
+    spectatorCode: string | null
+    role: "player" | "spectator"
     copyStatus: string
     copyCodeStatus: string
+    copySpecCodeStatus: string
     onCopyLink: () => void
     onCopyInviteCode: () => void
+    onCopySpectatorCode: () => void
     timeRemaining: number | null
     destroying: boolean
     onDestroy: () => void
+    allowSpectators: boolean
+    spectatorsCount: number
+    spectatorCapacity: number
+    spectatorSlotsRemaining: number
 }) {
     const {
         roomId,
         mode,
         inviteCode,
+        spectatorCode,
+        role,
         copyStatus,
         copyCodeStatus,
+        copySpecCodeStatus,
         onCopyLink,
         onCopyInviteCode,
+        onCopySpectatorCode,
         timeRemaining,
         destroying,
         onDestroy,
+        allowSpectators,
+        spectatorsCount,
+        spectatorCapacity,
+        spectatorSlotsRemaining,
     } = props
 
     const shortId = roomId.length > 10 ? roomId.slice(0, 10) + "..." : roomId
-
     const urgent = timeRemaining !== null && timeRemaining < 60
 
     return (
@@ -73,7 +88,7 @@ export function RoomHeader(props: {
                     <>
                         <div className="h-8 w-px bg-zinc-800 hidden sm:block" />
                         <div className="hidden sm:flex flex-col">
-                            <span className="text-xs text-zinc-500 uppercase tracking-widest">Invite Code</span>
+                            <span className="text-xs text-zinc-500 uppercase tracking-widest">Player Code</span>
                             <div className="flex items-center gap-2">
                                 <span className="font-bold text-blue-400 tracking-widest">{inviteCode}</span>
                                 <button
@@ -87,29 +102,60 @@ export function RoomHeader(props: {
                     </>
                 )}
 
+                {mode === "invite" && spectatorCode && (
+                    <>
+                        <div className="h-8 w-px bg-zinc-800 hidden sm:block" />
+                        <div className="hidden sm:flex flex-col">
+                            <span className="text-xs text-zinc-500 uppercase tracking-widest">Spectator Code</span>
+                            <div className="flex items-center gap-2">
+                                <span className="font-bold text-amber-400 tracking-widest">{spectatorCode}</span>
+                                <button
+                                    onClick={onCopySpectatorCode}
+                                    className="text-[10px] bg-zinc-800 hover:bg-zinc-700 px-2 py-0.5 rounded text-zinc-400 hover:text-zinc-200 transition-colors"
+                                >
+                                    {copySpecCodeStatus}
+                                </button>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {allowSpectators && (
+                    <>
+                        <div className="h-8 w-px bg-zinc-800 hidden sm:block" />
+                        <div className="hidden sm:flex flex-col">
+                            <span className="text-xs text-zinc-500 uppercase tracking-widest">Spectators</span>
+                            <span className="text-sm font-bold text-zinc-200">
+                                {spectatorsCount}/{spectatorCapacity}{" "}
+                                <span className="text-xs text-zinc-500 font-normal">({spectatorSlotsRemaining} left)</span>
+                            </span>
+                        </div>
+                    </>
+                )}
+
                 <div className="h-8 w-px bg-zinc-800 hidden sm:block" />
 
                 <div className="flex flex-col">
                     <span className="text-xs text-zinc-500 uppercase tracking-widest">Self-Destruct</span>
 
-                    <span
-                        className={`text-sm font-bold flex items-center gap-2 ${
-                            urgent ? "text-red-500" : "text-amber-500"
-                        }`}
-                    >
+                    <span className={`text-sm font-bold flex items-center gap-2 ${urgent ? "text-red-500" : "text-amber-500"}`}>
                         {timeRemaining !== null ? formatTimeRemaining(timeRemaining) : "--:--"}
                     </span>
                 </div>
             </div>
 
-            <button
-                onClick={onDestroy}
-                disabled={destroying}
-                className="text-xs bg-zinc-800 hover:bg-red-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold transition-all group flex items-center gap-2 disabled:opacity-50"
-            >
-                <span className="group-hover:animate-pulse">💣</span>
-                DESTROY NOW
-            </button>
+            {role === "player" ? (
+                <button
+                    onClick={onDestroy}
+                    disabled={destroying}
+                    className="text-xs bg-zinc-800 hover:bg-red-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold transition-all group flex items-center gap-2 disabled:opacity-50"
+                >
+                    <span className="group-hover:animate-pulse">💣</span>
+                    DESTROY NOW
+                </button>
+            ) : (
+                <div />
+            )}
         </header>
     )
 }

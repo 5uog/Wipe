@@ -29,13 +29,19 @@ import { Suspense, useMemo, useState } from "react"
 
 const Page = () => {
     return (
-        <Suspense>
+        <Suspense fallback={null}>
             <Lobby />
         </Suspense>
     )
 }
 
 export default Page
+
+function readStringProp(obj: unknown, key: string): string | null {
+    if (typeof obj !== "object" || obj === null) return null
+    const v = (obj as Record<string, unknown>)[key]
+    return typeof v === "string" ? v : null
+}
 
 function Lobby() {
     const { username } = useUsername()
@@ -49,38 +55,35 @@ function Lobby() {
 
     const normalizedInvite = useMemo(() => inviteCodeInput.trim().toUpperCase(), [inviteCodeInput])
 
-    const { mutate: createRoom, isPending: creating } = useMutation({
-        mutationFn: async () => {
-            const res = await client.room.create.post()
-            if (res.status === 200) router.push(`/room/${res.data?.roomId}`)
-        },
-    })
-
     const { mutate: matchRoom, isPending: matching } = useMutation({
         mutationFn: async () => {
             const res = await client.room.match.post()
-            if (res.status === 200) router.push(`/room/${res.data?.roomId}`)
+            const data: unknown = res.data as unknown
+            const roomId = readStringProp(data, "roomId")
+            if (res.status === 200 && roomId) router.push(`/room/${encodeURIComponent(roomId)}`)
         },
     })
 
     const { mutate: joinByCode, isPending: joining } = useMutation({
         mutationFn: async () => {
             const res = await client.room.resolve.get({ query: { code: normalizedInvite } })
+            const data: unknown = res.data as unknown
 
-            const roomId = res.data && "roomId" in res.data ? (res.data.roomId as string) : null
-            const err = res.data && "error" in res.data ? (res.data.error as string) : null
+            const roomId = readStringProp(data, "roomId")
+            const err = readStringProp(data, "error")
 
             if (!roomId) {
                 if (err === "room-full") router.push("/?error=room-full")
+                else if (err === "spectator-full") router.push("/?error=spectator-full")
                 else router.push("/?error=code-invalid")
                 return
             }
 
-            router.push(`/room/${roomId}?code=${encodeURIComponent(normalizedInvite)}`)
+            router.push(`/room/${encodeURIComponent(roomId)}?code=${encodeURIComponent(normalizedInvite)}`)
         },
     })
 
-    const joinDisabled = joining || matching || creating || normalizedInvite.length === 0
+    const joinDisabled = joining || matching || normalizedInvite.length === 0
 
     return (
         <main className="flex min-h-screen flex-col items-center justify-center p-4">
@@ -106,12 +109,17 @@ function Lobby() {
                     </div>
                 )}
 
+                {error === "spectator-full" && (
+                    <div className="bg-red-950/50 border border-red-900 p-4 text-center">
+                        <p className="text-red-500 text-sm font-bold">SPECTATOR FULL</p>
+                        <p className="text-zinc-500 text-xs mt-1">Spectator slots are full for this room.</p>
+                    </div>
+                )}
+
                 {error === "invite-code-required" && (
                     <div className="bg-red-950/50 border border-red-900 p-4 text-center">
                         <p className="text-red-500 text-sm font-bold">INVITE CODE REQUIRED</p>
-                        <p className="text-zinc-500 text-xs mt-1">
-                            This invite room requires a valid code to join.
-                        </p>
+                        <p className="text-zinc-500 text-xs mt-1">This invite room requires a valid code to join.</p>
                     </div>
                 )}
 
@@ -169,15 +177,15 @@ function Lobby() {
 
                         <button
                             onClick={() => matchRoom()}
-                            disabled={matching || creating || joining}
+                            disabled={matching || joining}
                             className="w-full bg-green-500/90 text-black p-3 text-sm font-bold hover:bg-green-500 transition-colors mt-2 cursor-pointer disabled:opacity-50"
                         >
                             FIND RANDOM OPPONENT
                         </button>
 
                         <button
-                            onClick={() => createRoom()}
-                            disabled={matching || creating || joining}
+                            onClick={() => router.push("/create")}
+                            disabled={matching || joining}
                             className="w-full bg-zinc-100 text-black p-3 text-sm font-bold hover:bg-zinc-50 transition-colors mt-2 cursor-pointer disabled:opacity-50"
                         >
                             CREATE INVITE ROOM

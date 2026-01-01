@@ -17,29 +17,46 @@ No license or other rights are granted by implication, estoppel, or otherwise.
 All rights not expressly granted are reserved by the author.
  ======================================================= */
 
-// src/server/messages.ts
+// FILE: src/server/messages.ts
 
 import { redis } from "@/lib/redis"
 import { Message, realtime } from "@/lib/realtime"
 import { Elysia, t } from "elysia"
 import { nanoid } from "nanoid"
-import { authMiddleware } from "./auth"
+import { authMiddleware, type RoomMeta } from "./auth"
 import { messagesKey, metaKey, gameKey, remainingTTLSeconds } from "./keys"
+
+function normalizeSender(sender: string) {
+    return String(sender ?? "").slice(0, 100)
+}
 
 export const messages = new Elysia({ prefix: "/messages" })
     .use(authMiddleware)
     .post(
         "/",
-        async ({ body, auth }) => {
+        async ({ body, auth, set }) => {
             const { sender, text } = body
             const { roomId } = auth
 
             const roomExists = await redis.exists(metaKey(roomId))
             if (!roomExists) throw new Error("Room does not exist")
 
+            const meta = auth.meta ?? (await redis.hgetall<RoomMeta>(metaKey(roomId)))
+
+            if (auth.role === "spectator") {
+                const allowSend = !!meta?.spectatorCanViewChat && !!meta?.spectatorCanSendChat
+                if (!allowSend) {
+                    set.status = 403
+                    return { error: "forbidden" as const }
+                }
+            }
+
+            const finalSender =
+                auth.role === "spectator" ? `[SPEC] ${normalizeSender(sender)}` : normalizeSender(sender)
+
             const message: Message = {
                 id: nanoid(),
-                sender,
+                sender: finalSender,
                 text,
                 timestamp: Date.now(),
                 roomId,
@@ -49,8 +66,15 @@ export const messages = new Elysia({ prefix: "/messages" })
             await realtime.channel(roomId).emit("chat.message", message)
 
             const remaining = await remainingTTLSeconds(roomId)
-            await redis.expire(messagesKey(roomId), remaining)
-            await redis.expire(gameKey(roomId), remaining)
+            if (remaining === null) {
+                await redis.persist(messagesKey(roomId))
+                await redis.persist(gameKey(roomId))
+            } else {
+                await redis.expire(messagesKey(roomId), remaining)
+                await redis.expire(gameKey(roomId), remaining)
+            }
+
+            return { ok: true }
         },
         {
             query: t.Object({ roomId: t.String() }),
@@ -62,12 +86,18 @@ export const messages = new Elysia({ prefix: "/messages" })
     )
     .get(
         "/",
-        async ({ auth }) => {
-            const list = await redis.lrange<Message & { token?: string }>(
-                messagesKey(auth.roomId),
-                0,
-                -1
-            )
+        async ({ auth, set }) => {
+            const meta = auth.meta ?? (await redis.hgetall<RoomMeta>(metaKey(auth.roomId)))
+
+            if (auth.role === "spectator") {
+                const allowView = !!meta?.spectatorCanViewChat
+                if (!allowView) {
+                    set.status = 403
+                    return { error: "forbidden" as const }
+                }
+            }
+
+            const list = await redis.lrange<Message & { token?: string }>(messagesKey(auth.roomId), 0, -1)
 
             return {
                 messages: list.map((m) => ({

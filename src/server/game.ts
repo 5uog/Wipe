@@ -34,7 +34,7 @@ import {
     type Disc,
     type Player,
 } from "@/lib/othello"
-import { authMiddleware } from "./auth"
+import { authMiddleware, type RoomMeta } from "./auth"
 import { gameKey, metaKey, remainingTTLSeconds } from "./keys"
 
 type GameStatus = "waiting" | "playing" | "finished"
@@ -83,26 +83,65 @@ function coinFlip(): boolean {
     return Math.random() < 0.5
 }
 
-function assignSingleTokenRandom(state: GameState, token: string) {
-    if (coinFlip()) state.blackToken = token
-    else state.whiteToken = token
+function assignSingleToken(state: GameState, token: string, hostColor: "random" | "black" | "white") {
+    if (hostColor === "black") state.blackToken = token
+    else if (hostColor === "white") state.whiteToken = token
+    else {
+        if (coinFlip()) state.blackToken = token
+        else state.whiteToken = token
+    }
 }
 
-function fillSlotsFromConnected(state: GameState, connected: string[]) {
-    const tokens = connected.slice(0, 2)
+function sanitizeHandicap(meta: RoomMeta | null | undefined) {
+    const b = Array.isArray(meta?.handicap?.black) ? meta!.handicap!.black! : []
+    const w = Array.isArray(meta?.handicap?.white) ? meta!.handicap!.white! : []
 
+    const black = new Set<number>()
+    const white = new Set<number>()
+
+    for (const v of b) {
+        const n = typeof v === "number" ? v : Number(v)
+        if (!Number.isFinite(n)) continue
+        const i = Math.floor(n)
+        if (i < 0 || i > 63) continue
+        black.add(i)
+    }
+
+    for (const v of w) {
+        const n = typeof v === "number" ? v : Number(v)
+        if (!Number.isFinite(n)) continue
+        const i = Math.floor(n)
+        if (i < 0 || i > 63) continue
+        if (black.has(i)) continue
+        white.add(i)
+    }
+
+    return { black: [...black], white: [...white] }
+}
+
+function applyHandicap(board: Disc[], handicap: { black: number[]; white: number[] }) {
+    const next = board.slice()
+    for (const i of handicap.black) {
+        if (i < 0 || i > 63) continue
+        if (next[i] === 0) next[i] = 1
+    }
+    for (const i of handicap.white) {
+        if (i < 0 || i > 63) continue
+        if (next[i] === 0) next[i] = 2
+    }
+    return next
+}
+
+function fillSlotsFromPlayers(state: GameState, players: string[]) {
+    const tokens = players.slice(0, 2)
     for (const token of tokens) {
         if (token === state.blackToken || token === state.whiteToken) continue
         if (!state.blackToken) state.blackToken = token
         else if (!state.whiteToken) state.whiteToken = token
     }
-
-    if (!state.blackToken && !state.whiteToken && tokens[0]) {
-        assignSingleTokenRandom(state, tokens[0])
-    }
 }
 
-async function ensureGame(roomId: string, connected: string[]) {
+async function ensureGame(roomId: string, players: string[], meta: RoomMeta | null) {
     const key = gameKey(roomId)
     let state = await redis.get<GameState>(key)
 
@@ -111,11 +150,13 @@ async function ensureGame(roomId: string, connected: string[]) {
 
     if (!state) {
         const now = Date.now()
-        const board = createInitialBoard()
+        const base = createInitialBoard()
+        const handicap = sanitizeHandicap(meta)
+        const board = applyHandicap(base, handicap)
 
-        if (connected.length >= 2) {
-            const a = connected[0]!
-            const b = connected[1]!
+        if (players.length >= 2) {
+            const a = players[0]!
+            const b = players[1]!
             const aIsBlack = coinFlip()
 
             state = {
@@ -134,7 +175,7 @@ async function ensureGame(roomId: string, connected: string[]) {
             dirty = true
             startedNow = true
         } else {
-            const only = connected[0] ?? null
+            const only = players[0] ?? null
 
             state = {
                 roomId,
@@ -149,13 +190,20 @@ async function ensureGame(roomId: string, connected: string[]) {
                 updatedAt: now,
             }
 
-            if (only) assignSingleTokenRandom(state, only)
+            if (only) {
+                const hostColor =
+                    meta?.hostColor === "black" || meta?.hostColor === "white" || meta?.hostColor === "random"
+                        ? meta.hostColor
+                        : "random"
+                assignSingleToken(state, only, hostColor)
+            }
+
             dirty = true
         }
     } else {
-        fillSlotsFromConnected(state, connected)
+        fillSlotsFromPlayers(state, players)
 
-        if (connected.length >= 2 && state.status === "waiting") {
+        if (players.length >= 2 && state.status === "waiting") {
             state.status = "playing"
             state.turn = 1
             state.passStreak = 0
@@ -168,7 +216,9 @@ async function ensureGame(roomId: string, connected: string[]) {
 
     if (dirty) {
         await redis.set(key, state)
-        await redis.expire(key, await remainingTTLSeconds(roomId))
+        const rem = await remainingTTLSeconds(roomId)
+        if (rem === null) await redis.persist(key)
+        else await redis.expire(key, rem)
     }
 
     if (startedNow) {
@@ -210,8 +260,9 @@ export const game = new Elysia({ prefix: "/game" })
             const roomExists = await redis.exists(metaKey(auth.roomId))
             if (!roomExists) throw new Error("Room does not exist")
 
-            const state = await ensureGame(auth.roomId, auth.connected)
-            const me = mePlayerFromState(state, auth.token)
+            const meta = auth.meta ?? (await redis.hgetall<RoomMeta>(metaKey(auth.roomId)))
+            const state = await ensureGame(auth.roomId, auth.players, meta)
+            const me = auth.role === "player" ? mePlayerFromState(state, auth.token) : null
 
             return {
                 me,
@@ -226,7 +277,10 @@ export const game = new Elysia({ prefix: "/game" })
             const roomExists = await redis.exists(metaKey(auth.roomId))
             if (!roomExists) throw new Error("Room does not exist")
 
-            const state = await ensureGame(auth.roomId, auth.connected)
+            if (auth.role !== "player") throw new Error("Not a player")
+
+            const meta = auth.meta ?? (await redis.hgetall<RoomMeta>(metaKey(auth.roomId)))
+            const state = await ensureGame(auth.roomId, auth.players, meta)
             if (state.status !== "playing" || !state.turn) throw new Error("Game not started")
 
             const me = mePlayerFromState(state, auth.token)
@@ -247,7 +301,9 @@ export const game = new Elysia({ prefix: "/game" })
             finishIfNeeded(state)
 
             await redis.set(gameKey(auth.roomId), state)
-            await redis.expire(gameKey(auth.roomId), await remainingTTLSeconds(auth.roomId))
+            const rem = await remainingTTLSeconds(auth.roomId)
+            if (rem === null) await redis.persist(gameKey(auth.roomId))
+            else await redis.expire(gameKey(auth.roomId), rem)
 
             await realtime.channel(auth.roomId).emit("game.state", publicGameState(state))
             return { ok: true }
@@ -266,7 +322,10 @@ export const game = new Elysia({ prefix: "/game" })
             const roomExists = await redis.exists(metaKey(auth.roomId))
             if (!roomExists) throw new Error("Room does not exist")
 
-            const state = await ensureGame(auth.roomId, auth.connected)
+            if (auth.role !== "player") throw new Error("Not a player")
+
+            const meta = auth.meta ?? (await redis.hgetall<RoomMeta>(metaKey(auth.roomId)))
+            const state = await ensureGame(auth.roomId, auth.players, meta)
             if (state.status !== "playing" || !state.turn) throw new Error("Game not started")
 
             const me = mePlayerFromState(state, auth.token)
@@ -289,7 +348,9 @@ export const game = new Elysia({ prefix: "/game" })
             }
 
             await redis.set(gameKey(auth.roomId), state)
-            await redis.expire(gameKey(auth.roomId), await remainingTTLSeconds(auth.roomId))
+            const rem = await remainingTTLSeconds(auth.roomId)
+            if (rem === null) await redis.persist(gameKey(auth.roomId))
+            else await redis.expire(gameKey(auth.roomId), rem)
 
             await realtime.channel(auth.roomId).emit("game.state", publicGameState(state))
             return { ok: true }

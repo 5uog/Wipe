@@ -27,6 +27,7 @@ import styles from "./room.module.css"
 import { discClass, playerLabel } from "@/lib/room/roomUtils"
 
 export function BoardPane(props: {
+    role: "player" | "spectator"
     statusText: string
     me: Player | null
     state: GameStatePayload | null
@@ -45,6 +46,7 @@ export function BoardPane(props: {
     onOpenChat: () => void
 }) {
     const {
+        role,
         statusText,
         me,
         state,
@@ -63,6 +65,8 @@ export function BoardPane(props: {
         onOpenChat,
     } = props
 
+    const roleText = role === "spectator" ? "SPECTATOR" : playerLabel(me)
+
     return (
         <section className="h-full min-h-0 flex flex-col bg-zinc-900/20">
             <div className="p-4 border-b border-zinc-800 bg-zinc-900/30">
@@ -71,7 +75,7 @@ export function BoardPane(props: {
                         <div className="text-xs text-zinc-500 uppercase tracking-widest">Othello</div>
                         <div className="text-sm font-bold text-zinc-200">{statusText}</div>
                         <div className="text-xs text-zinc-500">
-                            YOU: <span className="text-zinc-200 font-bold">{playerLabel(me)}</span>
+                            YOU: <span className="text-zinc-200 font-bold">{roleText}</span>
                         </div>
                     </div>
 
@@ -93,7 +97,7 @@ export function BoardPane(props: {
 
                         <button
                             onClick={onPass}
-                            disabled={!canPass || passing || moving}
+                            disabled={role !== "player" || !canPass || passing || moving}
                             className="text-xs bg-zinc-800 hover:bg-zinc-700 px-3 py-1.5 rounded text-zinc-300 font-bold disabled:opacity-50"
                         >
                             PASS
@@ -115,7 +119,7 @@ export function BoardPane(props: {
 
                                     const hint = legalSet.has(`${x},${y}`)
 
-                                    const clickable = hint && !moving && !passing
+                                    const clickable = role === "player" && hint && !moving && !passing
 
                                     const isFlipping = flipping.has(i)
 
@@ -173,7 +177,7 @@ export function BoardPane(props: {
 
                         {state?.status === "waiting" && mode === "invite" && inviteCode && (
                             <div className="mt-3 text-xs text-zinc-500">
-                                Opponent not joined yet. Share this invite code:{" "}
+                                Opponent not joined yet. Share this player code:{" "}
                                 <span className="text-blue-400 font-bold tracking-widest">{inviteCode}</span>
                             </div>
                         )}

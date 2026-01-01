@@ -47,9 +47,11 @@ export function ChatPane(props: {
     inputRef: RefObject<HTMLInputElement | null>
     onSend: () => void
     sendingMessage: boolean
+    canView: boolean
+    canSend: boolean
 }) {
-    const { roomId, username, messages, input, setInput, inputRef, onSend, sendingMessage } = props
-    const list = messages?.messages ?? []
+    const { roomId, username, messages, input, setInput, inputRef, onSend, sendingMessage, canView, canSend } = props
+    const list = canView ? messages?.messages ?? [] : []
 
     return (
         <section className="h-full min-h-0 flex flex-col bg-zinc-950">
@@ -61,31 +63,34 @@ export function ChatPane(props: {
             </div>
 
             <div className={`flex-1 min-h-0 overflow-y-auto p-4 space-y-4 ${styles.chatScroll}`}>
-                {list.length === 0 && (
+                {!canView ? (
+                    <div className="flex items-center justify-center h-full">
+                        <p className="text-zinc-600 text-sm font-mono">Chat is not available for your role.</p>
+                    </div>
+                ) : list.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
                         <p className="text-zinc-600 text-sm font-mono">No messages yet, start the conversation.</p>
                     </div>
-                )}
+                ) : (
+                    list.map((msg) => (
+                        <div key={msg.id} className="flex flex-col items-start">
+                            <div className="max-w-[80%] group">
+                                <div className="flex items-baseline gap-3 mb-1">
+                                    <span
+                                        className={`text-xs font-bold ${msg.sender === username ? "text-green-500" : "text-blue-500"
+                                            }`}
+                                    >
+                                        {msg.sender === username ? "YOU" : msg.sender}
+                                    </span>
 
-                {list.map((msg) => (
-                    <div key={msg.id} className="flex flex-col items-start">
-                        <div className="max-w-[80%] group">
-                            <div className="flex items-baseline gap-3 mb-1">
-                                <span
-                                    className={`text-xs font-bold ${
-                                        msg.sender === username ? "text-green-500" : "text-blue-500"
-                                    }`}
-                                >
-                                    {msg.sender === username ? "YOU" : msg.sender}
-                                </span>
+                                    <span className="text-[10px] text-zinc-600">{format(msg.timestamp, "HH:mm")}</span>
+                                </div>
 
-                                <span className="text-[10px] text-zinc-600">{format(msg.timestamp, "HH:mm")}</span>
+                                <p className="text-sm text-zinc-300 leading-relaxed break-all">{msg.text}</p>
                             </div>
-
-                            <p className="text-sm text-zinc-300 leading-relaxed break-all">{msg.text}</p>
                         </div>
-                    </div>
-                ))}
+                    ))
+                )}
             </div>
 
             <div className="p-4 border-t border-zinc-800 bg-zinc-900/30">
@@ -101,17 +106,18 @@ export function ChatPane(props: {
                             type="text"
                             value={input}
                             onKeyDown={(e) => {
-                                if (e.key === "Enter" && input.trim()) onSend()
+                                if (e.key === "Enter" && input.trim() && canSend) onSend()
                             }}
-                            placeholder="Type message..."
+                            placeholder={canSend ? "Type message..." : "Chat disabled"}
                             onChange={(e) => setInput(e.target.value)}
-                            className="w-full bg-black border border-zinc-800 focus:border-zinc-700 focus:outline-none transition-colors text-zinc-100 placeholder:text-zinc-700 py-3 pl-8 pr-4 text-sm"
+                            disabled={!canSend || !canView}
+                            className="w-full bg-black border border-zinc-800 focus:border-zinc-700 focus:outline-none transition-colors text-zinc-100 placeholder:text-zinc-700 py-3 pl-8 pr-4 text-sm disabled:opacity-50"
                         />
                     </div>
 
                     <button
                         onClick={onSend}
-                        disabled={!input.trim() || sendingMessage}
+                        disabled={!canSend || !canView || !input.trim() || sendingMessage}
                         className="bg-zinc-800 text-zinc-400 px-5 text-sm font-bold hover:text-zinc-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer rounded shrink-0"
                     >
                         SEND

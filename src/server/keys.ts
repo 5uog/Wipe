@@ -17,12 +17,14 @@ No license or other rights are granted by implication, estoppel, or otherwise.
 All rights not expressly granted are reserved by the author.
  ======================================================= */
 
-// src/server/keys.ts
+// FILE: src/server/keys.ts
 
 import { redis } from "@/lib/redis"
 
 export const ROOM_TTL_SECONDS = 60 * 10
 export const WAITING_ROOM_TTL_SECONDS = 60 * 60
+
+export const SPECTATOR_CAPACITY = 5
 
 export const INVITE_CODE_LENGTH = 6
 export const INVITE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -30,7 +32,8 @@ export const INVITE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 export const gameKey = (roomId: string) => `game:${roomId}`
 export const metaKey = (roomId: string) => `meta:${roomId}`
 export const messagesKey = (roomId: string) => `messages:${roomId}`
-export const inviteKey = (code: string) => `invite:${code}`
+
+export const inviteKey = (kind: "player" | "spectator", code: string) => `invite:${kind}:${code}`
 
 export function normalizeInviteCode(code: string) {
     return code.trim().toUpperCase()
@@ -40,7 +43,9 @@ export function isInviteCodeFormat(code: string) {
     return /^[0-9A-Z]{6}$/.test(code)
 }
 
-export async function remainingTTLSeconds(roomId: string) {
+export async function remainingTTLSeconds(roomId: string): Promise<number | null> {
     const ttl = await redis.ttl(metaKey(roomId))
-    return ttl > 0 ? ttl : ROOM_TTL_SECONDS
+    if (ttl === -1) return null
+    if (ttl > 0) return ttl
+    return ROOM_TTL_SECONDS
 }
