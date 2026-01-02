@@ -1,23 +1,4 @@
-/* ======================================================= *
-Copyright © 2025 suog, Konishi Kento.
-All rights reserved.
-
-This work is protected by applicable copyright laws. 
-
-No permission is granted to copy, reproduce, modify, distribute, publish, transmit, sublicense, 
-or otherwise exploit this work, in whole or in part, in any form or by any means, 
-without the prior explicit written consent of the copyright holder.
-Use of this work for training, fine-tuning, evaluating, benchmarking, or otherwise developing or 
-improving machine learning systems, including generative or foundation models, is expressly prohibited.
-This includes any incorporation of this work or any derivative thereof into datasets or pipelines 
-used for automated learning or model development. Any false attribution, misrepresentation of origin,
-or removal or alteration of this notice is prohibited and constitutes an infringement of the author's moral rights. 
-
-No license or other rights are granted by implication, estoppel, or otherwise.
-All rights not expressly granted are reserved by the author.
- ======================================================= */
-
-// FILE: src/app/create/page.tsx
+// FILE: src/app/ai/page.tsx
 
 "use client"
 
@@ -27,12 +8,11 @@ import { useMutation } from "@tanstack/react-query"
 import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
 
-type HostColor = "random" | "black" | "white"
+type AiLevel = "easy" | "normal" | "hard"
+type HumanPlays = "random" | "black" | "white"
 
-type CreateResponse = {
+type AiCreateResponse = {
     roomId: string
-    inviteCode: string
-    spectatorCode: string | null
 }
 
 const LOCKED: Record<number, Disc> = {
@@ -51,12 +31,9 @@ function cellDisc(board: Disc[], i: number): Disc {
     return board[i] ?? 0
 }
 
-export default function CreatePage() {
-    const [allowSpectators, setAllowSpectators] = useState(false)
-    const [specViewChat, setSpecViewChat] = useState(true)
-    const [specSendChat, setSpecSendChat] = useState(false)
-
-    const [hostColor, setHostColor] = useState<HostColor>("random")
+export default function AiPage() {
+    const [aiLevel, setAiLevel] = useState<AiLevel>("normal")
+    const [humanPlays, setHumanPlays] = useState<HumanPlays>("random")
 
     const [ttlEnabled, setTtlEnabled] = useState(true)
     const [ttlMinutes, setTtlMinutes] = useState(10)
@@ -64,18 +41,11 @@ export default function CreatePage() {
     const [handicap, setHandicap] = useState<Disc[]>(() => Array(64).fill(0))
 
     const [copyRoomIdStatus, setCopyRoomIdStatus] = useState("COPY")
-    const [copyInviteStatus, setCopyInviteStatus] = useState("COPY")
-    const [copySpectatorStatus, setCopySpectatorStatus] = useState("COPY")
-
     const copyRoomTimerRef = useRef<number | null>(null)
-    const copyInviteTimerRef = useRef<number | null>(null)
-    const copySpectatorTimerRef = useRef<number | null>(null)
 
     useEffect(() => {
         return () => {
             if (copyRoomTimerRef.current) window.clearTimeout(copyRoomTimerRef.current)
-            if (copyInviteTimerRef.current) window.clearTimeout(copyInviteTimerRef.current)
-            if (copySpectatorTimerRef.current) window.clearTimeout(copySpectatorTimerRef.current)
         }
     }, [])
 
@@ -91,30 +61,25 @@ export default function CreatePage() {
         return { black, white }
     }, [handicap])
 
-    const { mutate: createRoom, isPending, data, reset } = useMutation({
+    const { mutate: createAiRoom, isPending, data, reset } = useMutation({
         mutationFn: async () => {
             const ttlSeconds =
                 ttlEnabled && Number.isFinite(ttlMinutes) && ttlMinutes > 0
                     ? Math.max(60, Math.min(24 * 60 * 60, Math.floor(ttlMinutes * 60)))
                     : null
 
-            const spectatorCanViewChat = allowSpectators ? specViewChat : false
-            const spectatorCanSendChat = allowSpectators && specViewChat ? specSendChat : false
-
-            const res = await client.room.create.post({
-                allowSpectators,
-                spectatorCanViewChat,
-                spectatorCanSendChat,
-                hostColor,
+            const res = await client.room.ai.post({
                 ttlSeconds,
                 handicap: handicapPayload,
+                aiLevel,
+                humanPlays,
             })
 
-            return res.data as CreateResponse
+            return res.data as AiCreateResponse
         },
     })
 
-    const result = (data ?? null) as CreateResponse | null
+    const result = (data ?? null) as AiCreateResponse | null
 
     const copyToClipboard = async (text: string) => {
         try {
@@ -145,16 +110,12 @@ export default function CreatePage() {
         }
     }
 
-    const flashStatus = (
-        setter: (v: string) => void,
-        timerRef: React.MutableRefObject<number | null>,
-        ok: boolean
-    ) => {
-        if (timerRef.current) window.clearTimeout(timerRef.current)
-        setter(ok ? "COPIED!" : "COPY FAILED")
-        timerRef.current = window.setTimeout(() => {
-            timerRef.current = null
-            setter("COPY")
+    const flashStatus = (ok: boolean) => {
+        if (copyRoomTimerRef.current) window.clearTimeout(copyRoomTimerRef.current)
+        setCopyRoomIdStatus(ok ? "COPIED!" : "COPY FAILED")
+        copyRoomTimerRef.current = window.setTimeout(() => {
+            copyRoomTimerRef.current = null
+            setCopyRoomIdStatus("COPY")
         }, 1600)
     }
 
@@ -162,8 +123,8 @@ export default function CreatePage() {
         <main className="min-h-screen p-4 flex items-center justify-center">
             <div className="w-full max-w-2xl space-y-6">
                 <div className="text-center space-y-2">
-                    <h1 className="text-2xl font-bold tracking-tight text-green-500">{">"}create_invite_room</h1>
-                    <p className="text-zinc-500 text-sm">Configure settings, then generate invite codes.</p>
+                    <h1 className="text-2xl font-bold tracking-tight text-amber-400">{">"}play_vs_ai</h1>
+                    <p className="text-zinc-500 text-sm">Configure settings, then start a PVE room.</p>
                 </div>
 
                 {result ? (
@@ -177,7 +138,7 @@ export default function CreatePage() {
                                     onClick={async () => {
                                         setCopyRoomIdStatus("COPYING...")
                                         const ok = await copyToClipboard(result.roomId)
-                                        flashStatus(setCopyRoomIdStatus, copyRoomTimerRef, ok)
+                                        flashStatus(ok)
                                     }}
                                     className="text-xs bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded text-zinc-200 font-bold shrink-0"
                                 >
@@ -186,61 +147,13 @@ export default function CreatePage() {
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className="text-xs text-zinc-500 uppercase tracking-widest">Player Invite Code</div>
-                                    <div className="font-bold text-blue-400 tracking-widest text-lg">{result.inviteCode}</div>
-                                </div>
-                                <button
-                                    onClick={async () => {
-                                        setCopyInviteStatus("COPYING...")
-                                        const ok = await copyToClipboard(result.inviteCode)
-                                        flashStatus(setCopyInviteStatus, copyInviteTimerRef, ok)
-                                    }}
-                                    className="text-xs bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded text-zinc-200 font-bold shrink-0"
-                                >
-                                    {copyInviteStatus}
-                                </button>
-                            </div>
-
-                            {result.spectatorCode && (
-                                <div className="flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <div className="text-xs text-zinc-500 uppercase tracking-widest">
-                                            Spectator Invite Code
-                                        </div>
-                                        <div className="font-bold text-amber-400 tracking-widest text-lg">
-                                            {result.spectatorCode}
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={async () => {
-                                            setCopySpectatorStatus("COPYING...")
-                                            const ok = await copyToClipboard(result.spectatorCode!)
-                                            flashStatus(setCopySpectatorStatus, copySpectatorTimerRef, ok)
-                                        }}
-                                        className="text-xs bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded text-zinc-200 font-bold shrink-0"
-                                    >
-                                        {copySpectatorStatus}
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-
                         <div className="flex items-center justify-between gap-3">
                             <button
                                 onClick={() => {
                                     reset()
                                     setCopyRoomIdStatus("COPY")
-                                    setCopyInviteStatus("COPY")
-                                    setCopySpectatorStatus("COPY")
                                     if (copyRoomTimerRef.current) window.clearTimeout(copyRoomTimerRef.current)
-                                    if (copyInviteTimerRef.current) window.clearTimeout(copyInviteTimerRef.current)
-                                    if (copySpectatorTimerRef.current) window.clearTimeout(copySpectatorTimerRef.current)
                                     copyRoomTimerRef.current = null
-                                    copyInviteTimerRef.current = null
-                                    copySpectatorTimerRef.current = null
                                 }}
                                 className="text-xs bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded text-zinc-200 font-bold"
                             >
@@ -248,8 +161,8 @@ export default function CreatePage() {
                             </button>
 
                             <Link
-                                href={`/room/${encodeURIComponent(result.roomId)}?code=${encodeURIComponent(result.inviteCode)}`}
-                                className="text-xs bg-green-500/90 hover:bg-green-500 text-black px-4 py-2 rounded font-bold"
+                                href={`/room/${encodeURIComponent(result.roomId)}`}
+                                className="text-xs bg-amber-400/90 hover:bg-amber-400 text-black px-4 py-2 rounded font-bold"
                             >
                                 ENTER ROOM
                             </Link>
@@ -259,66 +172,44 @@ export default function CreatePage() {
                     <div className="border border-zinc-800 bg-zinc-900/50 p-6 space-y-6">
                         <div className="space-y-5">
                             <div className="space-y-2">
-                                <div className="text-xs text-zinc-500 uppercase tracking-widest">Spectators</div>
-
-                                <label className="flex items-center gap-3 text-sm text-zinc-300">
-                                    <input
-                                        type="checkbox"
-                                        checked={allowSpectators}
-                                        onChange={(e) => {
-                                            const v = e.target.checked
-                                            setAllowSpectators(v)
-                                            if (!v) setSpecSendChat(false)
-                                        }}
-                                        className="accent-green-500"
-                                    />
-                                    Allow spectators
-                                </label>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <label className="flex items-center gap-3 text-sm text-zinc-300">
-                                        <input
-                                            type="checkbox"
-                                            checked={specViewChat}
-                                            onChange={(e) => {
-                                                const v = e.target.checked
-                                                setSpecViewChat(v)
-                                                if (!v) setSpecSendChat(false)
-                                            }}
-                                            disabled={!allowSpectators}
-                                            className="accent-green-500 disabled:opacity-50"
-                                        />
-                                        Spectators can view chat
-                                    </label>
-
-                                    <label className="flex items-center gap-3 text-sm text-zinc-300">
-                                        <input
-                                            type="checkbox"
-                                            checked={specSendChat}
-                                            onChange={(e) => setSpecSendChat(e.target.checked)}
-                                            disabled={!allowSpectators || !specViewChat}
-                                            className="accent-green-500 disabled:opacity-50"
-                                        />
-                                        Spectators can send chat
-                                    </label>
+                                <div className="text-xs text-zinc-500 uppercase tracking-widest">Difficulty</div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    {(["easy", "normal", "hard"] as const).map((v) => (
+                                        <button
+                                            key={v}
+                                            onClick={() => setAiLevel(v)}
+                                            className={[
+                                                "px-4 py-3 border rounded text-xs font-bold uppercase tracking-widest",
+                                                aiLevel === v
+                                                    ? "border-amber-400 text-amber-300 bg-amber-950/20"
+                                                    : "border-zinc-800 text-zinc-300 bg-zinc-950/40 hover:bg-zinc-900/60",
+                                            ].join(" ")}
+                                        >
+                                            {v}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 
                             <div className="space-y-2">
                                 <div className="text-xs text-zinc-500 uppercase tracking-widest">Host Color</div>
+                                <p className="text-xs text-zinc-600">
+                                    This setting determines your color. AI automatically takes the opposite color.
+                                </p>
+
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     {(["random", "black", "white"] as const).map((v) => (
                                         <button
                                             key={v}
-                                            onClick={() => setHostColor(v)}
+                                            onClick={() => setHumanPlays(v)}
                                             className={[
                                                 "px-4 py-3 border rounded text-xs font-bold uppercase tracking-widest",
-                                                hostColor === v
+                                                humanPlays === v
                                                     ? "border-green-500 text-green-400 bg-green-950/30"
                                                     : "border-zinc-800 text-zinc-300 bg-zinc-950/40 hover:bg-zinc-900/60",
                                             ].join(" ")}
                                         >
-                                            {v}
+                                            {v === "random" ? "random" : `${v}`}
                                         </button>
                                     ))}
                                 </div>
@@ -334,7 +225,7 @@ export default function CreatePage() {
                                         onChange={(e) => setTtlEnabled(e.target.checked)}
                                         className="accent-green-500"
                                     />
-                                    Enable auto-destroy timer (starts when 2 players join)
+                                    Enable auto-destroy timer (starts when you enter)
                                 </label>
 
                                 <div className="flex items-center gap-3">
@@ -355,7 +246,7 @@ export default function CreatePage() {
                                 </div>
 
                                 <p className="text-xs text-zinc-600">
-                                    Players can always destroy via the in-room button, even if auto-destroy is disabled.
+                                    You can always destroy via the in-room button, even if auto-destroy is disabled.
                                 </p>
                             </div>
 
@@ -415,33 +306,25 @@ export default function CreatePage() {
                             </Link>
 
                             <button
-                                onClick={() => createRoom()}
+                                onClick={() => createAiRoom()}
                                 disabled={isPending}
-                                className="text-xs bg-green-500/90 hover:bg-green-500 text-black px-5 py-2 rounded font-bold disabled:opacity-50"
+                                className="text-xs bg-amber-400/90 hover:bg-amber-400 text-black px-5 py-2 rounded font-bold disabled:opacity-50"
                             >
-                                {isPending ? "CREATING..." : "CREATE ROOM"}
+                                {isPending ? "CREATING..." : "START VS AI"}
                             </button>
                         </div>
 
                         <button
                             onClick={() => {
                                 reset()
-                                setAllowSpectators(false)
-                                setSpecViewChat(true)
-                                setSpecSendChat(false)
-                                setHostColor("random")
+                                setAiLevel("normal")
+                                setHumanPlays("random")
                                 setTtlEnabled(true)
                                 setTtlMinutes(10)
                                 setHandicap(Array(64).fill(0))
                                 setCopyRoomIdStatus("COPY")
-                                setCopyInviteStatus("COPY")
-                                setCopySpectatorStatus("COPY")
                                 if (copyRoomTimerRef.current) window.clearTimeout(copyRoomTimerRef.current)
-                                if (copyInviteTimerRef.current) window.clearTimeout(copyInviteTimerRef.current)
-                                if (copySpectatorTimerRef.current) window.clearTimeout(copySpectatorTimerRef.current)
                                 copyRoomTimerRef.current = null
-                                copyInviteTimerRef.current = null
-                                copySpectatorTimerRef.current = null
                             }}
                             className="text-xs text-zinc-500 hover:text-zinc-300 underline"
                         >

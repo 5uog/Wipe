@@ -67,52 +67,58 @@ export async function middleware(req: NextRequest) {
 
     const existingToken = req.cookies.get("x-auth-token")?.value
     const mode = meta.mode ?? "invite"
+    const pve = !!meta.pve
 
     if (existingToken && (players.includes(existingToken) || spectators.includes(existingToken))) {
         return NextResponse.next()
     }
 
-    const allowSpectators = !!meta.allowSpectators
-    const isInvite = mode === "invite"
-
     let joinRole: "player" | "spectator" = "player"
 
-    if (!isInvite) {
-        if (players.length >= 2) {
+    if (pve || mode === "ai") {
+        if (players.length >= 1) {
             return NextResponse.redirect(new URL("/?error=room-full", req.url))
         }
         joinRole = "player"
     } else {
-        const providedRaw = req.nextUrl.searchParams.get("code")
-        const provided = typeof providedRaw === "string" ? normalizeInviteCode(providedRaw) : ""
+        const allowSpectators = !!meta.allowSpectators
+        const isInvite = mode === "invite"
 
-        if (!provided) {
-            // Host can enter without a code ONLY when no players exist yet.
-            // (If a spectator code is provided, it must be respected even if no players exist.)
-            if (players.length === 0) {
-                joinRole = "player"
-            } else {
-                return NextResponse.redirect(new URL("/?error=invite-code-required", req.url))
+        if (!isInvite) {
+            if (players.length >= 2) {
+                return NextResponse.redirect(new URL("/?error=room-full", req.url))
             }
+            joinRole = "player"
         } else {
-            const match = isInviteCodeMatch(meta, provided)
+            const providedRaw = req.nextUrl.searchParams.get("code")
+            const provided = typeof providedRaw === "string" ? normalizeInviteCode(providedRaw) : ""
 
-            if (match.isPlayer) {
-                joinRole = "player"
-            } else if (match.isSpectator && allowSpectators) {
-                joinRole = "spectator"
+            if (!provided) {
+                if (players.length === 0) {
+                    joinRole = "player"
+                } else {
+                    return NextResponse.redirect(new URL("/?error=invite-code-required", req.url))
+                }
             } else {
-                return NextResponse.redirect(new URL("/?error=code-invalid", req.url))
+                const match = isInviteCodeMatch(meta, provided)
+
+                if (match.isPlayer) {
+                    joinRole = "player"
+                } else if (match.isSpectator && allowSpectators) {
+                    joinRole = "spectator"
+                } else {
+                    return NextResponse.redirect(new URL("/?error=code-invalid", req.url))
+                }
             }
         }
-    }
 
-    if (joinRole === "player" && players.length >= 2) {
-        return NextResponse.redirect(new URL("/?error=room-full", req.url))
-    }
+        if (joinRole === "player" && players.length >= 2) {
+            return NextResponse.redirect(new URL("/?error=room-full", req.url))
+        }
 
-    if (joinRole === "spectator" && spectators.length >= SPECTATOR_CAPACITY) {
-        return NextResponse.redirect(new URL("/?error=spectator-full", req.url))
+        if (joinRole === "spectator" && spectators.length >= SPECTATOR_CAPACITY) {
+            return NextResponse.redirect(new URL("/?error=spectator-full", req.url))
+        }
     }
 
     const response = NextResponse.next()
@@ -130,9 +136,9 @@ export async function middleware(req: NextRequest) {
 
     await redis.hset(metaKey(roomId), { players: nextPlayers, spectators: nextSpectators })
 
-    const becameTwoPlayers = players.length === 1 && nextPlayers.length === 2
+    const becamePlayable = pve ? players.length === 0 && nextPlayers.length === 1 : players.length === 1 && nextPlayers.length === 2
 
-    if (becameTwoPlayers) {
+    if (becamePlayable) {
         const ttlSeconds = getConfiguredTtlSeconds(meta)
 
         if (ttlSeconds === null) {

@@ -52,7 +52,6 @@ function Lobby() {
     const error = searchParams.get("error")
 
     const [inviteCodeInput, setInviteCodeInput] = useState("")
-
     const normalizedInvite = useMemo(() => inviteCodeInput.trim().toUpperCase(), [inviteCodeInput])
 
     const { mutate: matchRoom, isPending: matching } = useMutation({
@@ -148,6 +147,14 @@ function Lobby() {
                                 </div>
                             </div>
                         </div>
+
+                        <button
+                            onClick={() => router.push("/ai")}
+                            disabled={matching || joining}
+                            className="w-full bg-amber-400/90 text-black p-3 text-sm font-bold hover:bg-amber-400 transition-colors mt-2 cursor-pointer disabled:opacity-50"
+                        >
+                            PLAY VS AI
+                        </button>
 
                         <div className="space-y-2">
                             <label className="flex items-center text-zinc-500">Join with Invite Code</label>

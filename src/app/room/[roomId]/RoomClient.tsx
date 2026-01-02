@@ -80,6 +80,18 @@ export default function RoomClient({ roomId }: { roomId: string }) {
     const [copyCodeStatus, setCopyCodeStatus] = useState("COPY CODE")
     const [copySpecCodeStatus, setCopySpecCodeStatus] = useState("COPY SPEC CODE")
 
+    const copyLinkTimerRef = useRef<number | null>(null)
+    const copyCodeTimerRef = useRef<number | null>(null)
+    const copySpecTimerRef = useRef<number | null>(null)
+
+    useEffect(() => {
+        return () => {
+            if (copyLinkTimerRef.current) window.clearTimeout(copyLinkTimerRef.current)
+            if (copyCodeTimerRef.current) window.clearTimeout(copyCodeTimerRef.current)
+            if (copySpecTimerRef.current) window.clearTimeout(copySpecTimerRef.current)
+        }
+    }, [])
+
     const [nowMs, setNowMs] = useState(() => Date.now())
     useEffect(() => {
         const id = window.setInterval(() => setNowMs(Date.now()), 1000)
@@ -387,23 +399,38 @@ export default function RoomClient({ roomId }: { roomId: string }) {
 
     const copyLink = async () => {
         const url = window.location.href
+        if (copyLinkTimerRef.current) window.clearTimeout(copyLinkTimerRef.current)
+        setCopyStatus("COPYING...")
         const ok = await copyToClipboard(url)
         setCopyStatus(ok ? "COPIED!" : "COPY FAILED")
-        window.setTimeout(() => setCopyStatus("COPY LINK"), 2000)
+        copyLinkTimerRef.current = window.setTimeout(() => {
+            copyLinkTimerRef.current = null
+            setCopyStatus("COPY LINK")
+        }, 2000)
     }
 
     const copyInviteCode = async () => {
         if (!inviteCode) return
+        if (copyCodeTimerRef.current) window.clearTimeout(copyCodeTimerRef.current)
+        setCopyCodeStatus("COPYING...")
         const ok = await copyToClipboard(inviteCode)
         setCopyCodeStatus(ok ? "COPIED!" : "COPY FAILED")
-        window.setTimeout(() => setCopyCodeStatus("COPY CODE"), 2000)
+        copyCodeTimerRef.current = window.setTimeout(() => {
+            copyCodeTimerRef.current = null
+            setCopyCodeStatus("COPY CODE")
+        }, 2000)
     }
 
     const copySpectatorCode = async () => {
         if (!spectatorCode) return
+        if (copySpecTimerRef.current) window.clearTimeout(copySpecTimerRef.current)
+        setCopySpecCodeStatus("COPYING...")
         const ok = await copyToClipboard(spectatorCode)
         setCopySpecCodeStatus(ok ? "COPIED!" : "COPY FAILED")
-        window.setTimeout(() => setCopySpecCodeStatus("COPY SPEC CODE"), 2000)
+        copySpecTimerRef.current = window.setTimeout(() => {
+            copySpecTimerRef.current = null
+            setCopySpecCodeStatus("COPY SPEC CODE")
+        }, 2000)
     }
 
     const statusText = useMemo(() => {

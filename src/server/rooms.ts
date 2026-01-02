@@ -38,8 +38,10 @@ import {
     normalizeInviteCode,
 } from "./keys"
 
-type RoomMode = "invite" | "match"
+type RoomMode = "invite" | "match" | "ai"
 type HostColor = "random" | "black" | "white"
+type AiLevel = "easy" | "normal" | "hard"
+type HumanPlays = "black" | "white" | "random"
 
 const makeInviteCode = customAlphabet(INVITE_ALPHABET, INVITE_CODE_LENGTH)
 
@@ -89,6 +91,14 @@ function normalizeTtlSeconds(v: unknown): number | null {
     return Math.max(60, Math.min(24 * 60 * 60, s))
 }
 
+function normalizeAiLevel(v: unknown): AiLevel {
+    return v === "easy" || v === "normal" || v === "hard" ? v : "normal"
+}
+
+function normalizeHumanPlays(v: unknown): HumanPlays {
+    return v === "black" || v === "white" || v === "random" ? v : "random"
+}
+
 export const rooms = new Elysia({ prefix: "/room" })
     .post(
         "/create",
@@ -122,6 +132,11 @@ export const rooms = new Elysia({ prefix: "/room" })
                 hostColor: normalizeHostColor(body.hostColor),
                 ttlSeconds,
                 handicap: { black: handicapBlack, white: handicapWhite },
+
+                pve: false,
+                aiLevel: "normal",
+                humanPlays: "random",
+                humanPlaysResolved: null,
             }
 
             await redis.hset(metaKey(roomId), meta)
@@ -146,6 +161,53 @@ export const rooms = new Elysia({ prefix: "/room" })
                     black: t.Array(t.Number()),
                     white: t.Array(t.Number()),
                 }),
+            }),
+        }
+    )
+    .post(
+        "/ai",
+        async ({ body }) => {
+            const roomId = nanoid()
+            const now = Date.now()
+
+            const handicapBlack = sanitizeIndices(body.handicap?.black)
+            const handicapWhite = sanitizeIndices(body.handicap?.white)
+            const ttlSeconds = normalizeTtlSeconds(body.ttlSeconds)
+
+            const meta: RoomMeta = {
+                players: [],
+                spectators: [],
+                createdAt: now,
+                mode: "ai" satisfies RoomMode,
+                inviteCode: null,
+                spectatorCode: null,
+                allowSpectators: false,
+                spectatorCanViewChat: false,
+                spectatorCanSendChat: false,
+                hostColor: "random",
+                ttlSeconds,
+                handicap: { black: handicapBlack, white: handicapWhite },
+
+                pve: true,
+                aiLevel: normalizeAiLevel(body.aiLevel),
+                humanPlays: normalizeHumanPlays(body.humanPlays),
+                humanPlaysResolved: null,
+            }
+
+            await redis.hset(metaKey(roomId), meta)
+            await redis.expire(metaKey(roomId), WAITING_ROOM_TTL_SECONDS)
+
+            return { roomId }
+        },
+        {
+            body: t.Object({
+                ttlSeconds: t.Union([t.Number(), t.Null()]),
+                handicap: t.Object({
+                    black: t.Array(t.Number()),
+                    white: t.Array(t.Number()),
+                }),
+                aiLevel: t.Union([t.Literal("easy"), t.Literal("normal"), t.Literal("hard")]),
+                humanPlays: t.Union([t.Literal("random"), t.Literal("black"), t.Literal("white")]),
             }),
         }
     )
@@ -224,7 +286,7 @@ export const rooms = new Elysia({ prefix: "/room" })
             players: [],
             spectators: [],
             createdAt: now,
-            mode: "match" satisfies RoomMode,
+            mode: "match" as const,
             inviteCode: null,
             spectatorCode: null,
             allowSpectators: false,
@@ -233,6 +295,11 @@ export const rooms = new Elysia({ prefix: "/room" })
             hostColor: "random",
             ttlSeconds: ROOM_TTL_SECONDS,
             handicap: { black: [], white: [] },
+
+            pve: false,
+            aiLevel: "normal",
+            humanPlays: "random",
+            humanPlaysResolved: null,
         }
 
         await redis.hset(metaKey(roomId), meta)
@@ -259,6 +326,10 @@ export const rooms = new Elysia({ prefix: "/room" })
                     spectatorsCount: 0,
                     spectatorCapacity: SPECTATOR_CAPACITY,
                     spectatorSlotsRemaining: SPECTATOR_CAPACITY,
+                    pve: false,
+                    aiLevel: null as string | null,
+                    humanPlays: null as string | null,
+                    humanPlaysResolved: null as string | null,
                 }
 
             const mode = (meta.mode ?? null) as RoomMode | null
@@ -289,6 +360,10 @@ export const rooms = new Elysia({ prefix: "/room" })
                 spectatorsCount,
                 spectatorCapacity: SPECTATOR_CAPACITY,
                 spectatorSlotsRemaining,
+                pve: !!meta.pve,
+                aiLevel: meta.aiLevel ?? null,
+                humanPlays: meta.humanPlays ?? null,
+                humanPlaysResolved: meta.humanPlaysResolved ?? null,
             }
         },
         { query: t.Object({ roomId: t.String() }) }
@@ -298,8 +373,10 @@ export const rooms = new Elysia({ prefix: "/room" })
         async ({ auth }) => {
             const meta = auth.meta ?? (await redis.hgetall<RoomMeta>(metaKey(auth.roomId)))
             const players = Array.isArray(meta?.players) ? meta!.players! : []
+            const pve = !!meta?.pve
 
-            if (players.length < 2) return { ttl: null as number | null }
+            if (!pve && players.length < 2) return { ttl: null as number | null }
+            if (pve && players.length < 1) return { ttl: null as number | null }
 
             const ttl = await redis.ttl(metaKey(auth.roomId))
             if (ttl === -1) return { ttl: null as number | null }

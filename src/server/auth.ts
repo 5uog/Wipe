@@ -23,8 +23,11 @@ import Elysia from "elysia"
 import { redis } from "@/lib/redis"
 import { metaKey } from "./keys"
 
-type RoomMode = "invite" | "match"
+type RoomMode = "invite" | "match" | "ai"
 type HostColor = "random" | "black" | "white"
+type AiLevel = "easy" | "normal" | "hard"
+type HumanPlays = "black" | "white" | "random"
+type ResolvedColor = "black" | "white"
 
 export type RoomMeta = {
     players?: string[]
@@ -39,6 +42,11 @@ export type RoomMeta = {
     hostColor?: HostColor
     ttlSeconds?: number | null
     handicap?: { black: number[]; white: number[] }
+
+    pve?: boolean
+    aiLevel?: AiLevel
+    humanPlays?: HumanPlays
+    humanPlaysResolved?: ResolvedColor | null
 }
 
 class AuthError extends Error {

@@ -29,6 +29,8 @@ export const SPECTATOR_CAPACITY = 5
 export const INVITE_CODE_LENGTH = 6
 export const INVITE_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+export const AI_TOKEN = "__AI__"
+
 export const gameKey = (roomId: string) => `game:${roomId}`
 export const metaKey = (roomId: string) => `meta:${roomId}`
 export const messagesKey = (roomId: string) => `messages:${roomId}`

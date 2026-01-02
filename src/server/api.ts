@@ -17,7 +17,7 @@ No license or other rights are granted by implication, estoppel, or otherwise.
 All rights not expressly granted are reserved by the author.
  ======================================================= */
 
-// src/server/api.ts
+// FILE: src/server/api.ts
 
 import { Elysia } from "elysia"
 import { rooms } from "./rooms"
